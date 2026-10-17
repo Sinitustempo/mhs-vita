@@ -16,3 +16,5 @@
 { "lseek",                                      (uintptr_t)&mhs_lseek },
 { "fstat",                                      (uintptr_t)&mhs_fstat },
 { "close",                                      (uintptr_t)&mhs_close },
+{ "AAsset_read",                                (uintptr_t)&mhs_AAsset_read },
+{ "AAsset_getRemainingLength",                  (uintptr_t)&mhs_AAsset_getRemainingLength },

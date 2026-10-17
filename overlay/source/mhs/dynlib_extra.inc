@@ -4,3 +4,5 @@
 { "__android_log_assert",                       (uintptr_t)&mhs_android_log_assert },
 { "SL_IID_EFFECTSEND",                          (uintptr_t)&mhs_SL_IID_EFFECTSEND },
 { "SL_IID_ENVIRONMENTALREVERB",                 (uintptr_t)&mhs_SL_IID_ENVIRONMENTALREVERB },
+{ "exit",                                       (uintptr_t)&mhs_exit },
+{ "abort",                                      (uintptr_t)&mhs_abort },

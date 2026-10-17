@@ -48,6 +48,10 @@ void mhs_native_resolve(void);
  * strings. Call after FalsoJNI is initialised, before notifyOnCreate. */
 void mhs_java_init_fields(void);
 
+/* Routes MT Framework's trace/error/warning/info output to the log file
+ * (patch.c). Call after soloader_init_all(). */
+void mhs_install_mt_handlers(void);
+
 /* Opaque non-NULL handles we hand to the game as Java objects. */
 #define MHS_FAKE_ACTIVITY      ((jobject)0x41435449) /* "ACTI" */
 #define MHS_FAKE_ASSET_MANAGER ((jobject)0x41534D47) /* "ASMG" */

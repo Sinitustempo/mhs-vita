@@ -51,5 +51,7 @@ int   mhs_read(int fd, void *buf, unsigned n);
 long  mhs_lseek(int fd, long off, int whence);
 int   mhs_fstat(int fd, void *st);
 int   mhs_close(int fd);
+int   mhs_AAsset_read(void *asset, void *buf, unsigned n);
+long  mhs_AAsset_getRemainingLength(void *asset);
 
 #endif

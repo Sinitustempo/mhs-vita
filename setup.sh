@@ -13,13 +13,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TREE="$HERE/build-tree"
 BOILERPLATE_URL="https://github.com/v-atamanenko/soloader-boilerplate"
 
+# Some boilerplate submodules use SSH URLs (git@github.com:...). Fetch them over
+# HTTPS instead so no SSH key is needed (CI containers don't even have ssh).
+git_https() { git -c url."https://github.com/".insteadOf="git@github.com:" "$@"; }
+
 rm -rf "$TREE"
-git clone --recurse-submodules "$BOILERPLATE_URL" "$TREE"
+git_https clone --recurse-submodules "$BOILERPLATE_URL" "$TREE"
 
 # Optional: build against a specific boilerplate commit/branch (BOILERPLATE_REF=...)
 if [ -n "${BOILERPLATE_REF:-}" ]; then
   git -C "$TREE" checkout "$BOILERPLATE_REF"
-  git -C "$TREE" submodule update --init --recursive
+  git_https -C "$TREE" submodule update --init --recursive
 fi
 echo "Using soloader-boilerplate $(git -C "$TREE" rev-parse --short HEAD)"
 

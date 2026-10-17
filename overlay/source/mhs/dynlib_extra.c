@@ -143,10 +143,64 @@ extern void *opendir_soloader(const char *path);
 extern int   access(const char *path, int mode);
 extern void *AAssetManager_open(void *mgr, const char *name, int mode);
 
+extern int   fstat_soloader(int fd, void *st);
+extern int   close_soloader(int fd);
+extern int   read(int fd, void *buf, unsigned n);
+extern long  lseek(int fd, long off, int whence);
+
+/* fds of open .obb files: reads on these get logged (bounded). */
+#define MAX_TRACKED 8
+static int tracked_fd[MAX_TRACKED] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+static int tracked_logs;
+
+static int is_tracked(int fd) {
+    for (int i = 0; i < MAX_TRACKED; i++) if (tracked_fd[i] == fd && fd >= 0) return 1;
+    return 0;
+}
+
 int mhs_open(const char *path, int flags, int mode) {
     int r = open_soloader(path, flags, mode);
     mhs_log("[io] open(%s, 0x%x) = %d", path ? path : "(null)", flags, r);
+    size_t n = path ? strlen(path) : 0;
+    if (r >= 0 && n > 4 && strcmp(path + n - 4, ".obb") == 0) {
+        for (int i = 0; i < MAX_TRACKED; i++) if (tracked_fd[i] < 0) { tracked_fd[i] = r; break; }
+    }
     return r;
+}
+
+int mhs_read(int fd, void *buf, unsigned n) {
+    int r = read(fd, buf, n);
+    if (is_tracked(fd) && tracked_logs++ < 200) {
+        const unsigned char *b = buf;
+        mhs_log("[io] read(fd %d, %u) = %d  first bytes %02x %02x %02x %02x", fd, n, r,
+                r > 0 ? b[0] : 0, r > 1 ? b[1] : 0, r > 2 ? b[2] : 0, r > 3 ? b[3] : 0);
+    }
+    return r;
+}
+
+long mhs_lseek(int fd, long off, int whence) {
+    long r = lseek(fd, off, whence);
+    if (is_tracked(fd) && tracked_logs++ < 200)
+        mhs_log("[io] lseek(fd %d, %ld, %d) = %ld", fd, off, whence, r);
+    return r;
+}
+
+int mhs_fstat(int fd, void *st) {
+    int r = fstat_soloader(fd, st);
+    if (is_tracked(fd)) {
+        /* bionic arm stat: st_size is a 64-bit field at offset 0x30 */
+        long long sz = *(long long *)((char *)st + 0x30);
+        mhs_log("[io] fstat(fd %d) = %d  st_size %lld", fd, r, sz);
+    }
+    return r;
+}
+
+int mhs_close(int fd) {
+    if (is_tracked(fd)) {
+        mhs_log("[io] close(fd %d)", fd);
+        for (int i = 0; i < MAX_TRACKED; i++) if (tracked_fd[i] == fd) tracked_fd[i] = -1;
+    }
+    return close_soloader(fd);
 }
 
 void *mhs_fopen(const char *path, const char *mode) {

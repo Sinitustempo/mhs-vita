@@ -513,11 +513,7 @@ MethodsVoid methodsVoid[] = {
 /* Fields                                                                   */
 /* ------------------------------------------------------------------------ */
 
-char WINDOW_SERVICE[] = "window";
 const int SDK_INT = 23;                 /* Android 6.0 */
-char BUILD_MODEL[] = "PS Vita";
-char BUILD_MANUFACTURER[] = "Sony";
-char BUILD_RELEASE[] = "6.0";
 
 NameToFieldID nameToFieldId[] = {
     { 0, "WINDOW_SERVICE", FIELD_TYPE_OBJECT },
@@ -526,6 +522,7 @@ NameToFieldID nameToFieldId[] = {
     { 3, "MANUFACTURER",   FIELD_TYPE_OBJECT },
     { 4, "RELEASE",        FIELD_TYPE_OBJECT },
     { 5, "orientation",    FIELD_TYPE_INT },
+    { 6, "BOARD",          FIELD_TYPE_OBJECT },
 };
 
 FieldsBoolean fieldsBoolean[] = {};
@@ -537,13 +534,31 @@ FieldsInt fieldsInt[] = {
     { 1, SDK_INT },
     { 5, 2 },                           /* Configuration.ORIENTATION_LANDSCAPE */
 };
+/* String fields must be real FalsoJNI JavaString objects (GetStringUTFChars
+ * dereferences them), so they start NULL and are filled in by
+ * mhs_java_init_fields() once FalsoJNI is up. A raw char[] here crashed the
+ * game in native::android::initialize when it read Build.MODEL. */
 FieldsObject fieldsObject[] = {
-    { 0, WINDOW_SERVICE },
-    { 2, BUILD_MODEL },
-    { 3, BUILD_MANUFACTURER },
-    { 4, BUILD_RELEASE },
+    { 0, NULL },
+    { 2, NULL },
+    { 3, NULL },
+    { 4, NULL },
+    { 6, NULL },
 };
 FieldsLong fieldsLong[] = {};
 FieldsShort fieldsShort[] = {};
+
+static void set_static_string(const char *field, const char *value) {
+    jfieldID id = jni->GetStaticFieldID(&jni, NULL, field, "Ljava/lang/String;");
+    setObjectFieldValueById(id, str(value));
+}
+
+void mhs_java_init_fields(void) {
+    set_static_string("WINDOW_SERVICE", "window");
+    set_static_string("MODEL", "PS Vita");          /* game logs "Model Name = %s." */
+    set_static_string("MANUFACTURER", "Sony");
+    set_static_string("RELEASE", "6.0");
+    set_static_string("BOARD", "vita");             /* game logs "Board Name = %s." */
+}
 
 __FALSOJNI_IMPL_CONTAINER_SIZES

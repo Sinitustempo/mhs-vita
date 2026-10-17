@@ -267,6 +267,84 @@ void *mhs_AAssetManager_open(void *mgr, const char *name, int mode) {
     return r;
 }
 
+/* ---- Shader diagnostics ------------------------------------------------
+ * vitaGL compiles the game's runtime GLSL through SceShaccCg. A shader that
+ * fails to compile and is then linked crashes inside SceGxm, so: log every
+ * compile result, dump failing sources to DATA_PATH "shader_fail_<id>.glsl",
+ * and refuse to link programs that contain a failed shader. */
+
+#include <vitaGL.h>
+#include <stdlib.h>
+
+#define MAX_SHADERS 4096
+static char *shader_src[MAX_SHADERS];
+static uint8_t shader_bad[MAX_SHADERS];
+static GLuint prog_shaders[MAX_SHADERS][2];
+static int compile_logs;
+
+void mhs_glShaderSource(GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length) {
+    if (shader < MAX_SHADERS) {
+        size_t total = 0;
+        for (GLsizei i = 0; i < count; i++)
+            total += (length && length[i] >= 0) ? (size_t)length[i] : strlen(string[i]);
+        free(shader_src[shader]);
+        shader_src[shader] = malloc(total + 1);
+        if (shader_src[shader]) {
+            size_t p = 0;
+            for (GLsizei i = 0; i < count; i++) {
+                size_t n = (length && length[i] >= 0) ? (size_t)length[i] : strlen(string[i]);
+                memcpy(shader_src[shader] + p, string[i], n);
+                p += n;
+            }
+            shader_src[shader][p] = 0;
+        }
+    }
+    glShaderSource(shader, count, string, length);
+}
+
+void mhs_glCompileShader(GLuint shader) {
+    glCompileShader(shader);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    if (shader < MAX_SHADERS) shader_bad[shader] = !ok;
+    if (!ok) {
+        char info[512] = "";
+        glGetShaderInfoLog(shader, sizeof(info), NULL, info);
+        mhs_log("[gl] shader %u compile FAILED: %s", shader, info);
+        if (shader < MAX_SHADERS && shader_src[shader]) {
+            char path[128];
+            sceClibSnprintf(path, sizeof(path), DATA_PATH "shader_fail_%u.glsl", shader);
+            SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+            if (fd >= 0) {
+                sceIoWrite(fd, shader_src[shader], strlen(shader_src[shader]));
+                sceIoClose(fd);
+            }
+        }
+    } else if (compile_logs++ < 40) {
+        mhs_log("[gl] shader %u compiled OK", shader);
+    }
+}
+
+void mhs_glAttachShader(GLuint program, GLuint shader) {
+    if (program < MAX_SHADERS) {
+        if (!prog_shaders[program][0]) prog_shaders[program][0] = shader;
+        else prog_shaders[program][1] = shader;
+    }
+    glAttachShader(program, shader);
+}
+
+void mhs_glLinkProgram(GLuint program) {
+    if (program < MAX_SHADERS) {
+        GLuint a = prog_shaders[program][0], b = prog_shaders[program][1];
+        if ((a < MAX_SHADERS && shader_bad[a]) || (b < MAX_SHADERS && shader_bad[b])) {
+            mhs_log("[gl] skipping link of program %u (shader %u/%u failed to compile)", program, a, b);
+            return;
+        }
+        mhs_log("[gl] linking program %u (shaders %u, %u)", program, a, b);
+    }
+    glLinkProgram(program);
+}
+
 static const char dummy_effectsend[16] = "MHS_EFFECTSEND";
 static const char dummy_reverb[16] = "MHS_ENVREVERB";
 const void *mhs_SL_IID_EFFECTSEND = dummy_effectsend;

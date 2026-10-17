@@ -23,6 +23,7 @@ extern so_module so_mod;
 #include "utils/logger.h"
 #include "utils/dialog.h"
 #include "reimpl/sys.h"
+#include "mhs/dynlib_extra.h"
 
 void __kuser_memory_barrier(void) {
     __sync_synchronize();
@@ -111,11 +112,45 @@ static void patch_heap_sizes(void) {
     }
 }
 
+/* MtDebug's handler setters are members of MtDebug::mInstance:
+ * set*Handler(this, void (*fn)(const char *msg, void *ctx), void *ctx).
+ * Called from main() after the game's static constructors have run, since
+ * those install the (empty) default handlers. */
+void mhs_install_mt_handlers(void) {
+    typedef void (*SetHandler)(void *self, void (*fn)(const char *, void *), void *ctx);
+    static const char *setters[] = {
+        "_ZN7MtDebug15setTraceHandlerEPFvPKcPvES2_",
+        "_ZN7MtDebug15setErrorHandlerEPFvPKcPvES2_",
+        "_ZN7MtDebug17setWarningHandlerEPFvPKcPvES2_",
+        "_ZN7MtDebug14setInfoHandlerEPFvPKcPvES2_",
+    };
+    void *inst = (void *)so_symbol(&so_mod, "_ZN7MtDebug9mInstanceE");
+    if (!inst) return;
+    for (unsigned i = 0; i < sizeof(setters) / sizeof(*setters); i++) {
+        SetHandler set = (SetHandler)so_symbol(&so_mod, setters[i]);
+        if (set) set(inst, mhs_hook_handler, NULL);
+    }
+    /* Turn the engine's own message output on. */
+    uint8_t one = 1;
+    uintptr_t en = so_symbol(&so_mod, "_ZN7MtDebug8mEnabledE");
+    uintptr_t ew = so_symbol(&so_mod, "_ZN7MtDebug17mEnabledErrorWarnE");
+    if (en) kuKernelCpuUnrestrictedMemcpy((void *)en, &one, 1);
+    if (ew) kuKernelCpuUnrestrictedMemcpy((void *)ew, &one, 1);
+}
+
 static void ret_void(void) {}
 
 void so_patch(void) {
     kuser_patch();
+    mhs_libmhr_base = so_symbol(&so_mod, "notifyOnCreate") - MHS_NOTIFYONCREATE_OFF;
     patch_heap_sizes();
+
+    /* Fatal paths: show the game's own message instead of exiting silently.
+     * (native::debug::trace and MtDebug's default handlers are 2-byte stubs
+     * packed back to back, too small to hook safely; mhs_install_mt_handlers
+     * covers the MtDebug ones instead.) */
+    hook_sym("_ZN7MtDebug5abortEPKcz", (uintptr_t)&mhs_hook_mtdebug_abort);
+    hook_sym("_ZN6native5debug12abortProgramEPKcz", (uintptr_t)&mhs_hook_abort_program);
 
     /* Candidate (untested): the Android sound backend builds an OpenSL reverb
      * chain the Vita wrapper doesn't implement. If audio init fails, try
@@ -126,7 +161,6 @@ void so_patch(void) {
      * hook_sym("_ZN6sSound19NativeSystemAndroid12updateEffectEv", (uintptr_t)&ret_void);
      */
     (void)ret_void;
-    (void)hook_sym;
 
     /* TODO (needs testing on hardware):
      *  - Movie playback: hook the uMovie / MTFPMoviePlayer wrapper to end

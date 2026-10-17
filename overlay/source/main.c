@@ -34,6 +34,12 @@
  * memory for its pools; at 300 MB here it ran dry and crashed in glLinkProgram. */
 int _newlib_heap_size_user = 230 * 1024 * 1024;
 
+/* The game runs on this thread and links its shaders deep inside the engine's
+ * call chain, where SceShaccCg (vitaGL's runtime shader compiler) then needs a
+ * lot of stack. With the default ~256 KB it failed with "fatal internal error"
+ * even on trivial shaders that compiled fine from main(). */
+unsigned int sceUserMainThreadStackSize = 4 * 1024 * 1024;
+
 #ifdef USE_SCELIBC_IO
 int sceLibcHeapSize = 4 * 1024 * 1024;
 #endif

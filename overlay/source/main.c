@@ -26,6 +26,7 @@
 #include "reimpl/controls.h"
 #include "mhs/mhs_native.h"
 #include "mhs/mtfp_event.h"
+#include "mhs/dynlib_extra.h"
 
 /* The game is big: 23 MB of code plus heavy asset streaming. Give newlib as
  * much as we can; vitaGL takes its share of RAM separately (see glutil.c). */
@@ -176,6 +177,8 @@ int main(void) {
     soloader_init_all();      /* loads SO_PATH (libMHR.so), resolves imports, runs so_patch() */
     mhs_native_resolve();
     mhs_java_init_fields();
+    mhs_install_mt_handlers();
+    mhs_log("MHS: loader up, libMHR.so at %p", (void *)mhs_libmhr_base);
 
     gl_init();                /* vitaGL context; the game issues GLES2 calls from renderFrame */
     controls_init();

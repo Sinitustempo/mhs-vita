@@ -14,6 +14,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <time.h>
 #include <vitasdk.h>
 
 extern so_module so_mod;
@@ -138,6 +140,60 @@ void mhs_install_mt_handlers(void) {
     if (ew) kuKernelCpuUnrestrictedMemcpy((void *)ew, &one, 1);
 }
 
+/* native::multithread::Event::wait(unsigned ms) waits on its condvar once and
+ * then treats the event as signalled, without re-checking the flag. Through the
+ * boilerplate's bionic pthread emulation that wait can return early, which let
+ * File::readAsync clear a request while the FileAccessManager thread was still
+ * reading it ("readAsyncDirect: Critical error ... error=-1" on the OBB).
+ * Replacement with the same layout and return value, looping on the flag. */
+typedef struct {
+    volatile uint8_t signaled;   /* +0 */
+    uint8_t pad[3];
+    int mutex;                   /* +4  bionic pthread_mutex_t */
+    int cond;                    /* +8  bionic pthread_cond_t  */
+} NativeEvent;
+
+extern int pthread_mutex_lock_soloader(void *m);
+extern int pthread_mutex_unlock_soloader(void *m);
+extern int pthread_cond_wait_soloader(void *c, void *m);
+extern int pthread_cond_timedwait_soloader(void *c, void *m, struct timespec *abstime);
+
+#define EVENT_INFINITE 0x80000000u
+
+static uint64_t now_us(void) { return sceKernelGetProcessTimeWide(); }
+
+static int mhs_event_wait(NativeEvent *ev, unsigned timeout_ms) {
+    pthread_mutex_lock_soloader(&ev->mutex);
+    int ok = 1;
+    if (timeout_ms == EVENT_INFINITE) {
+        while (!ev->signaled) {
+            if (pthread_cond_wait_soloader(&ev->cond, &ev->mutex) != 0) {
+                pthread_mutex_unlock_soloader(&ev->mutex);
+                sceKernelDelayThread(1000);
+                pthread_mutex_lock_soloader(&ev->mutex);
+            }
+        }
+    } else {
+        uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000;
+        while (!ev->signaled) {
+            uint64_t t = now_us();
+            if (t >= deadline) { ok = 0; break; }
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            uint64_t abs_us = (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec + (deadline - t);
+            struct timespec ts = { (time_t)(abs_us / 1000000), (long)(abs_us % 1000000) * 1000 };
+            if (pthread_cond_timedwait_soloader(&ev->cond, &ev->mutex, &ts) != 0 && !ev->signaled) {
+                pthread_mutex_unlock_soloader(&ev->mutex);
+                sceKernelDelayThread(500);
+                pthread_mutex_lock_soloader(&ev->mutex);
+            }
+        }
+    }
+    if (ok) ev->signaled = 0;
+    pthread_mutex_unlock_soloader(&ev->mutex);
+    return ok;
+}
+
 static void ret_void(void) {}
 
 void so_patch(void) {
@@ -151,6 +207,8 @@ void so_patch(void) {
      * covers the MtDebug ones instead.) */
     hook_sym("_ZN7MtDebug5abortEPKcz", (uintptr_t)&mhs_hook_mtdebug_abort);
     hook_sym("_ZN6native5debug12abortProgramEPKcz", (uintptr_t)&mhs_hook_abort_program);
+
+    hook_sym("_ZN6native11multithread5Event4waitEj", (uintptr_t)&mhs_event_wait);
 
     /* Candidate (untested): the Android sound backend builds an OpenSL reverb
      * chain the Vita wrapper doesn't implement. If audio init fails, try

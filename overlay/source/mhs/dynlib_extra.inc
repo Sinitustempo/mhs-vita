@@ -18,3 +18,7 @@
 { "close",                                      (uintptr_t)&mhs_close },
 { "AAsset_read",                                (uintptr_t)&mhs_AAsset_read },
 { "AAsset_getRemainingLength",                  (uintptr_t)&mhs_AAsset_getRemainingLength },
+{ "glShaderSource",                             (uintptr_t)&mhs_glShaderSource },
+{ "glCompileShader",                            (uintptr_t)&mhs_glCompileShader },
+{ "glAttachShader",                             (uintptr_t)&mhs_glAttachShader },
+{ "glLinkProgram",                              (uintptr_t)&mhs_glLinkProgram },

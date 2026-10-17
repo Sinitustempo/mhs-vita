@@ -60,5 +60,6 @@ void mhs_glShaderSource(unsigned shader, int count, const char *const *string, c
 void mhs_glCompileShader(unsigned shader);
 void mhs_glAttachShader(unsigned program, unsigned shader);
 void mhs_glLinkProgram(unsigned program);
+void mhs_shader_selftest(void);
 
 #endif

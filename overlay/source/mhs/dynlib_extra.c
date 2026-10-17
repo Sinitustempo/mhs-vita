@@ -292,6 +292,7 @@ void *mhs_AAssetManager_open(void *mgr, const char *name, int mode) {
 
 #include <vitaGL.h>
 #include <stdlib.h>
+#include <malloc.h>
 
 #define MAX_SHADERS 4096
 static char *shader_src[MAX_SHADERS];
@@ -364,7 +365,38 @@ void mhs_glAttachShader(GLuint program, GLuint shader) {
     glAttachShader(program, shader);
 }
 
+static int selftest_program(const char *label, const char *vs_src, const char *fs_src);
+static const char *selftest_vs_plain =
+    "attribute vec2 Position;\n"
+    "varying vec2 vTex;\n"
+    "void main() { vTex = Position; gl_Position = vec4(Position, 1.0, 1.0); }\n";
+static const char *selftest_fs_plain =
+    "precision mediump float;\n"
+    "varying vec2 vTex;\n"
+    "void main() { gl_FragColor = vec4(vTex, 0.0, 1.0); }\n";
+
+/* How much malloc-able memory is left: probe with decreasing block sizes. */
+static unsigned probe_free_mb(void) {
+    void *blocks[64];
+    int n = 0;
+    unsigned total = 0;
+    for (unsigned sz = 16; sz >= 1 && n < 64; ) {
+        void *b = malloc(sz << 20);
+        if (b) { blocks[n++] = b; total += sz; } else sz /= 2;
+    }
+    while (n) free(blocks[--n]);
+    return total;
+}
+
 void mhs_glLinkProgram(GLuint program) {
+    static int first = 1;
+    if (first) {
+        first = 0;
+        struct mallinfo mi = mallinfo();
+        mhs_log("[mem] at first game link: heap arena %u KB, in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
+                mi.arena >> 10, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());
+        selftest_program("C plain, at game link time", selftest_vs_plain, selftest_fs_plain);
+    }
     if (program < MAX_SHADERS) {
         GLuint a = prog_shaders[program][0], b = prog_shaders[program][1];
         if ((a < MAX_SHADERS && shader_bad[a]) || (b < MAX_SHADERS && shader_bad[b])) {
@@ -413,6 +445,7 @@ void mhs_shader_selftest(void) {
         "struct OUT_T { vec4 Pos; vec2 Tex; };\n"
         "OUT_T make(vec2 p) { OUT_T o; o.Pos = vec4(p, 1.0, 1.0); o.Tex = p; return o; }\n"
         "void main() { OUT_T r = make(Position); gl_Position = r.Pos; vTex = r.Tex; }\n";
+    mhs_log("[mem] at startup: malloc-able ~%u MB", probe_free_mb());
     selftest_program("A plain", vs_plain, fs_plain);
     selftest_program("B struct-return", vs_struct, fs_plain);
 }

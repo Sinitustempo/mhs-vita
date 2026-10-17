@@ -56,6 +56,14 @@ grep -q 'mhs/dynlib_extra.inc' source/dynlib.c || { echo "setup: failed to patch
 sed -i 's/SCE_GXM_MULTISAMPLE_4X/SCE_GXM_MULTISAMPLE_NONE/' source/utils/glutil.c
 grep -q 'SCE_GXM_MULTISAMPLE_NONE' source/utils/glutil.c || { echo "setup: failed to disable MSAA" >&2; exit 1; }
 
+# 5. vitaGL diagnostics: send its error log (normally sceClibPrintf, i.e. only a
+#    network debug console) to our mhs_log.txt, and in Debug builds also log the
+#    shader compiler (shark) and GLSL translator output.
+sed -i 's|#define vgl_log sceClibPrintf|void mhs_log(const char *fmt, ...);\n#define vgl_log mhs_log|' lib/vitagl/source/utils/debug_utils.h
+grep -q 'define vgl_log mhs_log' lib/vitagl/source/utils/debug_utils.h || { echo "setup: failed to redirect vgl_log" >&2; exit 1; }
+sed -i 's|SOFTFP_ABI=1 TEST=1 LOG_ERRORS=1|SOFTFP_ABI=1 TEST=1 LOG_ERRORS=1 HAVE_SHARK_LOG=1 DEBUG_GLSL_TRANSLATOR=1|' CMakeLists.txt
+grep -q 'HAVE_SHARK_LOG=1' CMakeLists.txt || echo "setup: warning: could not enable vitaGL shader logging" >&2
+
 echo
 echo "Build tree ready in $TREE"
 echo "Next:"

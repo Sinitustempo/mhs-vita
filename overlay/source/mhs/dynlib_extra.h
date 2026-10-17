@@ -47,5 +47,9 @@ int   mhs_stat(const char *path, void *st);
 void *mhs_opendir(const char *path);
 int   mhs_access(const char *path, int mode);
 void *mhs_AAssetManager_open(void *mgr, const char *name, int mode);
+int   mhs_read(int fd, void *buf, unsigned n);
+long  mhs_lseek(int fd, long off, int whence);
+int   mhs_fstat(int fd, void *st);
+int   mhs_close(int fd);
 
 #endif

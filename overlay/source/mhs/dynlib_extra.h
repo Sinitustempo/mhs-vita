@@ -54,4 +54,11 @@ int   mhs_close(int fd);
 int   mhs_AAsset_read(void *asset, void *buf, unsigned n);
 long  mhs_AAsset_getRemainingLength(void *asset);
 
+/* GL shader diagnostics (see dynlib_extra.c). Plain types so this header
+ * doesn't need vitaGL.h: GLuint/GLsizei/GLint are 32-bit ints. */
+void mhs_glShaderSource(unsigned shader, int count, const char *const *string, const int *length);
+void mhs_glCompileShader(unsigned shader);
+void mhs_glAttachShader(unsigned program, unsigned shader);
+void mhs_glLinkProgram(unsigned program);
+
 #endif

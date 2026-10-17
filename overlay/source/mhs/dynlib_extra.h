@@ -21,4 +21,22 @@ void mhs_android_log_assert(const char *cond, const char *tag, const char *fmt, 
 extern const void *mhs_SL_IID_EFFECTSEND;
 extern const void *mhs_SL_IID_ENVIRONMENTALREVERB;
 
+/* ---- Diagnostics -------------------------------------------------------
+ * The game's own logging (native::debug::trace) is compiled to empty stubs and
+ * its fatal paths end in a silent exit(). These route both to
+ * DATA_PATH "mhs_log.txt" and turn fatal exits into an on-screen dialog. */
+
+extern uintptr_t mhs_libmhr_base;   /* set by patch.c */
+
+void mhs_log(const char *fmt, ...);
+void mhs_exit(int code);
+void mhs_abort(void);
+
+/* Hook targets installed by patch.c (signatures match the game's functions). */
+void mhs_hook_trace(int type, const char *fmt, ...);
+void mhs_hook_trace_direct(int type, const char *msg);
+void mhs_hook_handler(const char *msg, void *ctx);
+void mhs_hook_mtdebug_abort(void *self, const char *fmt, ...);
+void mhs_hook_abort_program(const char *fmt, ...);
+
 #endif

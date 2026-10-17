@@ -53,6 +53,7 @@ void mhs_android_log_assert(const char *cond, const char *tag, const char *fmt, 
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/threadmgr.h>
+#include <stdlib.h>
 #include <psp2/kernel/clib.h>
 #include <string.h>
 
@@ -73,8 +74,24 @@ static void log_write(const char *s) {
 
 static void log_va(const char *prefix, const char *fmt, va_list va) {
     char buf[512];
+    va_list va2;
+    va_copy(va2, va);
     int p = sceClibSnprintf(buf, sizeof(buf), "[t%x] %s", sceKernelGetThreadId() & 0xffff, prefix);
-    vsnprintf(buf + p, sizeof(buf) - p, fmt ? fmt : "(null)", va);
+    int n = vsnprintf(buf + p, sizeof(buf) - p, fmt ? fmt : "(null)", va);
+    if (n >= (int)sizeof(buf) - p) {
+        /* Long message (e.g. vitaGL's translated shader dumps): log it whole. */
+        char *big = malloc(p + n + 1);
+        if (big) {
+            memcpy(big, buf, p);
+            vsnprintf(big + p, n + 1, fmt, va2);
+            log_write(big);
+            free(big);
+            va_end(va2);
+            strncpy(last_line, buf, sizeof(last_line) - 1);
+            return;
+        }
+    }
+    va_end(va2);
     strncpy(last_line, buf, sizeof(last_line) - 1);
     log_write(buf);
 }
@@ -302,7 +319,21 @@ void mhs_glShaderSource(GLuint shader, GLsizei count, const GLchar *const *strin
     glShaderSource(shader, count, string, length);
 }
 
+/* Save the game's generated GLSL for the first shaders, for offline analysis. */
+static void dump_shader_source(GLuint shader) {
+    if (shader >= 16 || shader >= MAX_SHADERS || !shader_src[shader]) return;
+    char path[128];
+    sceIoMkdir(DATA_PATH "shaders", 0777);
+    sceClibSnprintf(path, sizeof(path), DATA_PATH "shaders/%u.glsl", shader);
+    SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+    if (fd >= 0) {
+        sceIoWrite(fd, shader_src[shader], strlen(shader_src[shader]));
+        sceIoClose(fd);
+    }
+}
+
 void mhs_glCompileShader(GLuint shader) {
+    dump_shader_source(shader);
     glCompileShader(shader);
     GLint ok = GL_FALSE;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);

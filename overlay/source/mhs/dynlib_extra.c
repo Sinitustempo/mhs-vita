@@ -51,6 +51,7 @@ void mhs_android_log_assert(const char *cond, const char *tag, const char *fmt, 
 /* ---- Diagnostics ------------------------------------------------------- */
 
 #include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
 #include <string.h>
 
@@ -143,6 +144,13 @@ extern void *opendir_soloader(const char *path);
 extern int   access(const char *path, int mode);
 extern void *AAssetManager_open(void *mgr, const char *name, int mode);
 
+/* bionic (Android arm) struct stat: st_mode u32 @0x10, st_size s64 @0x30.
+ * The boilerplate's newlib->bionic conversion leaves st_size at 0 here, so the
+ * game saw both OBBs as empty files and never mounted them. Patch it up. */
+#define BIONIC_ST_MODE(st) (*(unsigned int *)((char *)(st) + 0x10))
+#define BIONIC_ST_SIZE(st) (*(long long *)((char *)(st) + 0x30))
+#define BIONIC_S_IFREG 0100000
+
 extern int   fstat_soloader(int fd, void *st);
 extern int   close_soloader(int fd);
 extern int   read(int fd, void *buf, unsigned n);
@@ -187,11 +195,14 @@ long mhs_lseek(int fd, long off, int whence) {
 
 int mhs_fstat(int fd, void *st) {
     int r = fstat_soloader(fd, st);
-    if (is_tracked(fd)) {
-        /* bionic arm stat: st_size is a 64-bit field at offset 0x30 */
-        long long sz = *(long long *)((char *)st + 0x30);
-        mhs_log("[io] fstat(fd %d) = %d  st_size %lld", fd, r, sz);
+    if (r == 0 && BIONIC_ST_SIZE(st) == 0) {
+        long cur = lseek(fd, 0, 1 /* SEEK_CUR */);
+        long end = lseek(fd, 0, 2 /* SEEK_END */);
+        if (cur >= 0) lseek(fd, cur, 0 /* SEEK_SET */);
+        if (end > 0) BIONIC_ST_SIZE(st) = end;
     }
+    if (is_tracked(fd))
+        mhs_log("[io] fstat(fd %d) = %d  st_size %lld  mode 0%o", fd, r, BIONIC_ST_SIZE(st), BIONIC_ST_MODE(st));
     return r;
 }
 
@@ -211,7 +222,12 @@ void *mhs_fopen(const char *path, const char *mode) {
 
 int mhs_stat(const char *path, void *st) {
     int r = stat_soloader(path, st);
-    mhs_log("[io] stat(%s) = %d", path ? path : "(null)", r);
+    if (r == 0 && path && BIONIC_ST_SIZE(st) == 0) {
+        SceIoStat s;
+        if (sceIoGetstat(path, &s) >= 0 && SCE_S_ISREG(s.st_mode)) BIONIC_ST_SIZE(st) = s.st_size;
+    }
+    mhs_log("[io] stat(%s) = %d  size %lld  mode 0%o", path ? path : "(null)", r,
+            r == 0 ? BIONIC_ST_SIZE(st) : -1LL, r == 0 ? BIONIC_ST_MODE(st) : 0);
     return r;
 }
 

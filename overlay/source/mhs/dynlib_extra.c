@@ -6,11 +6,35 @@
 
 #include "mhs/dynlib_extra.h"
 
+#include <errno.h>
+#include <reent.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <psp2/kernel/rng.h>
 
 #include "utils/dialog.h"
 #include "utils/logger.h"
+
+/* Recent VitaSDK newlib builds have getentropy() call _getentropy_r() without
+ * providing it, which breaks linking. Back it with the hardware RNG. */
+int _getentropy_r(struct _reent *r, void *buf, size_t len) {
+    if (len > 256) {
+        r->_errno = EIO;
+        return -1;
+    }
+    uint8_t *p = buf;
+    while (len) {
+        size_t n = len > 64 ? 64 : len;    /* sceKernelGetRandomNumber caps at 64 bytes */
+        if (sceKernelGetRandomNumber(p, n) < 0) {
+            r->_errno = EIO;
+            return -1;
+        }
+        p += n;
+        len -= n;
+    }
+    return 0;
+}
 
 void mhs_noop(void) {}
 

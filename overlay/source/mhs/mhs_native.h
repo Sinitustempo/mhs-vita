@@ -44,6 +44,10 @@ extern MhsNative mhs;
 /* Resolves every pointer in `mhs` from so_mod; aborts with a dialog on failure. */
 void mhs_native_resolve(void);
 
+/* Creates the String-typed static fields (Build.MODEL etc.) as FalsoJNI
+ * strings. Call after FalsoJNI is initialised, before notifyOnCreate. */
+void mhs_java_init_fields(void);
+
 /* Opaque non-NULL handles we hand to the game as Java objects. */
 #define MHS_FAKE_ACTIVITY      ((jobject)0x41435449) /* "ACTI" */
 #define MHS_FAKE_ASSET_MANAGER ((jobject)0x41534D47) /* "ASMG" */

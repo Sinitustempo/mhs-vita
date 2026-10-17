@@ -51,6 +51,11 @@ sed -i '/so_default_dynlib default_dynlib\[\] = {/a #include "mhs/dynlib_extra.i
 
 grep -q 'mhs/dynlib_extra.inc' source/dynlib.c || { echo "setup: failed to patch dynlib.c" >&2; exit 1; }
 
+# 4. glutil.c: no MSAA. 4x MSAA costs memory vitaGL needs and a lot of GPU
+#    bandwidth; the game is far too heavy for it on the Vita.
+sed -i 's/SCE_GXM_MULTISAMPLE_4X/SCE_GXM_MULTISAMPLE_NONE/' source/utils/glutil.c
+grep -q 'SCE_GXM_MULTISAMPLE_NONE' source/utils/glutil.c || { echo "setup: failed to disable MSAA" >&2; exit 1; }
+
 echo
 echo "Build tree ready in $TREE"
 echo "Next:"

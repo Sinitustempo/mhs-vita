@@ -175,6 +175,7 @@ int main(void) {
 
     soloader_init_all();      /* loads SO_PATH (libMHR.so), resolves imports, runs so_patch() */
     mhs_native_resolve();
+    mhs_java_init_fields();
 
     gl_init();                /* vitaGL context; the game issues GLES2 calls from renderFrame */
     controls_init();

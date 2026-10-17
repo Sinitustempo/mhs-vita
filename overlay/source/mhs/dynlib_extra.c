@@ -52,6 +52,7 @@ void mhs_android_log_assert(const char *cond, const char *tag, const char *fmt, 
 
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/clib.h>
 #include <string.h>
 
@@ -72,7 +73,7 @@ static void log_write(const char *s) {
 
 static void log_va(const char *prefix, const char *fmt, va_list va) {
     char buf[512];
-    int p = sceClibSnprintf(buf, sizeof(buf), "%s", prefix);
+    int p = sceClibSnprintf(buf, sizeof(buf), "[t%x] %s", sceKernelGetThreadId() & 0xffff, prefix);
     vsnprintf(buf + p, sizeof(buf) - p, fmt ? fmt : "(null)", va);
     strncpy(last_line, buf, sizeof(last_line) - 1);
     log_write(buf);
@@ -178,9 +179,11 @@ int mhs_open(const char *path, int flags, int mode) {
 
 int mhs_read(int fd, void *buf, unsigned n) {
     int r = read(fd, buf, n);
+    if (r != (int)n && !is_tracked(fd))
+        mhs_log("[io] short read(fd %d, %u) = %d errno %d", fd, n, r, errno);
     if (is_tracked(fd) && tracked_logs++ < 200) {
         const unsigned char *b = buf;
-        mhs_log("[io] read(fd %d, %u) = %d  first bytes %02x %02x %02x %02x", fd, n, r,
+        mhs_log("[io] read(fd %d, buf %p, %u) = %d  first bytes %02x %02x %02x %02x", fd, buf, n, r,
                 r > 0 ? b[0] : 0, r > 1 ? b[1] : 0, r > 2 ? b[2] : 0, r > 3 ? b[3] : 0);
     }
     return r;
@@ -240,6 +243,21 @@ void *mhs_opendir(const char *path) {
 int mhs_access(const char *path, int mode) {
     int r = access(path, mode);
     mhs_log("[io] access(%s, %d) = %d", path ? path : "(null)", mode, r);
+    return r;
+}
+
+extern int  AAsset_read(void *asset, void *buf, unsigned n);
+extern long AAsset_getRemainingLength(void *asset);
+
+int mhs_AAsset_read(void *asset, void *buf, unsigned n) {
+    int r = AAsset_read(asset, buf, n);
+    mhs_log("[io] AAsset_read(%p, %u) = %d", asset, n, r);
+    return r;
+}
+
+long mhs_AAsset_getRemainingLength(void *asset) {
+    long r = AAsset_getRemainingLength(asset);
+    mhs_log("[io] AAsset_getRemainingLength(%p) = %ld", asset, r);
     return r;
 }
 

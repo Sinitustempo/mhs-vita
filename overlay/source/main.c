@@ -179,10 +179,8 @@ int main(void) {
     gl_init();                /* vitaGL context; the game issues GLES2 calls from renderFrame */
     controls_init();
 
-    jstring lib_dir = jni->NewStringUTF(&jni, DATA_PATH);
-
     l_debug("MHS: notifyOnCreate");
-    mhs.notifyOnCreate(&jni, MHS_FAKE_CLASS, MHS_FAKE_ACTIVITY, lib_dir, MHS_FAKE_ASSET_MANAGER);
+    mhs.notifyOnCreate(&jni, MHS_FAKE_CLASS, MHS_FAKE_ACTIVITY, &jvm, MHS_FAKE_ASSET_MANAGER);
     mhs.notifyOnStart(&jni, MHS_FAKE_CLASS);
     mhs.notifyOnResume(&jni, MHS_FAKE_CLASS);
 

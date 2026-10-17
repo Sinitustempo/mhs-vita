@@ -66,10 +66,56 @@ static void hook_sym(const char *sym, uintptr_t dst) {
 
 /* ---- Game patches ------------------------------------------------------ */
 
+/* MT Framework's default heaps (MtMemoryAllocator::allocateDefaultMemory).
+ * Each MtScalableAllocator reserves its whole size up front, ~730 MB in total.
+ * That's fine with Android's lazily-committed virtual memory but impossible on
+ * the Vita: the 216 MB Resource heap failed to allocate, leaving that allocator
+ * empty, and sResource's constructor crashed on its first (20 byte) allocation.
+ *
+ * The table is 9 x 24-byte entries {name, index, type, size, attr, pad} at this
+ * offset in libMHR.so 1.0.5. Sizes below are a first guess at a Vita budget;
+ * tune them if the game reports an allocator running dry. */
+#define MHS_ALLOC_TABLE_OFF   0x154ACEC
+#define MHS_NOTIFYONCREATE_OFF 0x87d501   /* Thumb address of notifyOnCreate */
+
+static const struct { const char *name; uint32_t orig, vita; } mhs_heaps[9] = {
+    { "Global",       0x00800000, 8   << 20 },
+    { "Temp",         0x08000000, 24  << 20 },
+    { "Resource",     0x0d85c000, 96  << 20 },
+    { "Unit/Area",    0x01400000, 12  << 20 },  /* skipped by the game's loop */
+    { "System",       0x06400000, 32  << 20 },
+    { "Array/String", 0x04000000, 16  << 20 },
+    { "Collision",    0x00400000, 4   << 20 },
+    { "Develop",      0x04000000, 2   << 20 },  /* debug tooling only */
+    { "Sound",        0x08000000, 24  << 20 },
+};
+
+static void patch_heap_sizes(void) {
+    uintptr_t base = so_symbol(&so_mod, "notifyOnCreate") - MHS_NOTIFYONCREATE_OFF;
+    uint32_t *table = (uint32_t *)(base + MHS_ALLOC_TABLE_OFF);
+
+    /* Only touch it if every entry still holds the stock size, so a different
+     * game build can't get corrupted by a stale offset. */
+    for (int i = 0; i < 9; i++) {
+        if (table[i * 6 + 3] != mhs_heaps[i].orig) {
+            l_debug("patch: heap table mismatch at %d (%s): %#x, leaving sizes alone",
+                    i, mhs_heaps[i].name, table[i * 6 + 3]);
+            return;
+        }
+    }
+    for (int i = 0; i < 9; i++) {
+        uint32_t size = mhs_heaps[i].vita;
+        kuKernelCpuUnrestrictedMemcpy(&table[i * 6 + 3], &size, sizeof(size));
+        l_debug("patch: heap %-12s %3u MB -> %3u MB", mhs_heaps[i].name,
+                mhs_heaps[i].orig >> 20, size >> 20);
+    }
+}
+
 static void ret_void(void) {}
 
 void so_patch(void) {
     kuser_patch();
+    patch_heap_sizes();
 
     /* Candidate (untested): the Android sound backend builds an OpenSL reverb
      * chain the Vita wrapper doesn't implement. If audio init fails, try

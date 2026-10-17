@@ -39,4 +39,13 @@ void mhs_hook_handler(const char *msg, void *ctx);
 void mhs_hook_mtdebug_abort(void *self, const char *fmt, ...);
 void mhs_hook_abort_program(const char *fmt, ...);
 
+/* File-access tracing: log every path the game opens and whether it worked,
+ * then defer to the boilerplate's implementations. */
+int   mhs_open(const char *path, int flags, int mode);
+void *mhs_fopen(const char *path, const char *mode);
+int   mhs_stat(const char *path, void *st);
+void *mhs_opendir(const char *path);
+int   mhs_access(const char *path, int mode);
+void *mhs_AAssetManager_open(void *mgr, const char *name, int mode);
+
 #endif

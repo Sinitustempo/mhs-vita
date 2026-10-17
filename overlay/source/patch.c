@@ -83,14 +83,14 @@ static void hook_sym(const char *sym, uintptr_t dst) {
 
 static const struct { const char *name; uint32_t orig, vita; } mhs_heaps[9] = {
     { "Global",       0x00800000, 8   << 20 },
-    { "Temp",         0x08000000, 24  << 20 },
-    { "Resource",     0x0d85c000, 96  << 20 },
+    { "Temp",         0x08000000, 16  << 20 },
+    { "Resource",     0x0d85c000, 80  << 20 },
     { "Unit/Area",    0x01400000, 12  << 20 },  /* skipped by the game's loop */
-    { "System",       0x06400000, 32  << 20 },
+    { "System",       0x06400000, 24  << 20 },
     { "Array/String", 0x04000000, 16  << 20 },
     { "Collision",    0x00400000, 4   << 20 },
     { "Develop",      0x04000000, 2   << 20 },  /* debug tooling only */
-    { "Sound",        0x08000000, 24  << 20 },
+    { "Sound",        0x08000000, 16  << 20 },
 };
 
 static void patch_heap_sizes(void) {

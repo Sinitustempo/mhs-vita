@@ -376,6 +376,47 @@ void mhs_glLinkProgram(GLuint program) {
     glLinkProgram(program);
 }
 
+/* Startup self-test: is SceShaccCg working at all, or does it choke on the
+ * struct-returning functions the game's shader generator emits? Each step is
+ * logged before it runs, so a crash still tells us which one it was. */
+static int selftest_program(const char *label, const char *vs_src, const char *fs_src) {
+    mhs_log("[selftest] %s: compiling", label);
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER), fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(vs, 1, &vs_src, NULL);
+    glShaderSource(fs, 1, &fs_src, NULL);
+    glCompileShader(vs);
+    glCompileShader(fs);
+    GLuint p = glCreateProgram();
+    glAttachShader(p, vs);
+    glAttachShader(p, fs);
+    glBindAttribLocation(p, 0, "Position");
+    mhs_log("[selftest] %s: linking", label);
+    glLinkProgram(p);
+    GLint ok = GL_FALSE;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    mhs_log("[selftest] %s: link status %d", label, ok);
+    return ok;
+}
+
+void mhs_shader_selftest(void) {
+    static const char *fs_plain =
+        "precision mediump float;\n"
+        "varying vec2 vTex;\n"
+        "void main() { gl_FragColor = vec4(vTex, 0.0, 1.0); }\n";
+    static const char *vs_plain =
+        "attribute vec2 Position;\n"
+        "varying vec2 vTex;\n"
+        "void main() { vTex = Position; gl_Position = vec4(Position, 1.0, 1.0); }\n";
+    static const char *vs_struct =
+        "attribute vec2 Position;\n"
+        "varying vec2 vTex;\n"
+        "struct OUT_T { vec4 Pos; vec2 Tex; };\n"
+        "OUT_T make(vec2 p) { OUT_T o; o.Pos = vec4(p, 1.0, 1.0); o.Tex = p; return o; }\n"
+        "void main() { OUT_T r = make(Position); gl_Position = r.Pos; vTex = r.Tex; }\n";
+    selftest_program("A plain", vs_plain, fs_plain);
+    selftest_program("B struct-return", vs_struct, fs_plain);
+}
+
 static const char dummy_effectsend[16] = "MHS_EFFECTSEND";
 static const char dummy_reverb[16] = "MHS_ENVREVERB";
 const void *mhs_SL_IID_EFFECTSEND = dummy_effectsend;

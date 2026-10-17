@@ -392,6 +392,14 @@ void mhs_glLinkProgram(GLuint program) {
     static int first = 1;
     if (first) {
         first = 0;
+        SceKernelThreadInfo ti;
+        ti.size = sizeof(ti);
+        if (sceKernelGetThreadInfo(0, &ti) >= 0) {
+            uintptr_t sp = (uintptr_t)__builtin_frame_address(0);
+            mhs_log("[stack] at first game link: stack size %u KB, used %u KB, left %u KB",
+                    ti.stackSize >> 10, ((uintptr_t)ti.stack + ti.stackSize - sp) >> 10,
+                    (sp - (uintptr_t)ti.stack) >> 10);
+        }
         struct mallinfo mi = mallinfo();
         mhs_log("[mem] at first game link: heap arena %u KB, in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
                 mi.arena >> 10, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());

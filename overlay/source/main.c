@@ -186,6 +186,7 @@ int main(void) {
     mhs_log("MHS: vitaGL free memory: VRAM %u KB, RAM %u KB, PHYCONT %u KB",
             (unsigned)(vglMemFree(VGL_MEM_VRAM) >> 10), (unsigned)(vglMemFree(VGL_MEM_RAM) >> 10),
             (unsigned)(vglMemFree(VGL_MEM_SLOW) >> 10));
+    mhs_shader_selftest();
     controls_init();
 
     l_debug("MHS: notifyOnCreate");

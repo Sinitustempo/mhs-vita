@@ -14,9 +14,12 @@
  *   static native void    notifyOnStart/Resume/Pause/Stop/Restart/Destroy();
  *   static native void    notifyOnGLContextLost/SurfaceDestroyStart/SurfaceDestroyed();
  *
- * TODO(verify in Ghidra): the boot wrappers are assumed to pass (env, clazz,
- * args...) through unchanged. Check Java_jp_co_capcom_mhsspen_MTFPJNI_notifyOnCreate
- * in libAndroidSkeletonBoot.so before trusting this.
+ * The boot wrappers tail-call these with (env, clazz, args...) unchanged, with
+ * one exception: Java_..._notifyOnCreate uses the String to dlopen libMHR.so and
+ * passes the JavaVM it saved in JNI_OnLoad in its place. libMHR's
+ * notifyOnCreate hands r3 to native::android::setJavaVM(), so that slot must be
+ * a real JavaVM* (verified by disassembly; passing the string crashed in
+ * native::android::initialize -> vm->GetEnv).
  */
 
 #ifndef MHS_NATIVE_H
@@ -25,7 +28,7 @@
 #include <falso_jni/FalsoJNI.h>
 
 typedef struct {
-    void     (*notifyOnCreate)(JNIEnv *, jclass, jobject activity, jstring lib_dir, jobject asset_mgr);
+    void     (*notifyOnCreate)(JNIEnv *, jclass, jobject activity, JavaVM *vm, jobject asset_mgr);
     void     (*notifyOnStart)(JNIEnv *, jclass);
     void     (*notifyOnResume)(JNIEnv *, jclass);
     void     (*notifyOnPause)(JNIEnv *, jclass);

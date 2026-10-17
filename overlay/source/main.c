@@ -22,15 +22,17 @@
 
 #include <falso_jni/FalsoJNI.h>
 #include <so_util/so_util.h>
+#include <vitaGL.h>
 
 #include "reimpl/controls.h"
 #include "mhs/mhs_native.h"
 #include "mhs/mtfp_event.h"
 #include "mhs/dynlib_extra.h"
 
-/* The game is big: 23 MB of code plus heavy asset streaming. Give newlib as
- * much as we can; vitaGL takes its share of RAM separately (see glutil.c). */
-int _newlib_heap_size_user = 300 * 1024 * 1024;
+/* newlib heap: holds the game's MT Framework heaps (~166 MB, patch.c) plus its
+ * direct mallocs. vitaGL is initialised afterwards and gets what's left of main
+ * memory for its pools; at 300 MB here it ran dry and crashed in glLinkProgram. */
+int _newlib_heap_size_user = 230 * 1024 * 1024;
 
 #ifdef USE_SCELIBC_IO
 int sceLibcHeapSize = 4 * 1024 * 1024;
@@ -181,6 +183,9 @@ int main(void) {
     mhs_log("MHS: loader up, libMHR.so at %p", (void *)mhs_libmhr_base);
 
     gl_init();                /* vitaGL context; the game issues GLES2 calls from renderFrame */
+    mhs_log("MHS: vitaGL free memory: VRAM %u KB, RAM %u KB, PHYCONT %u KB",
+            (unsigned)(vglMemFree(VGL_MEM_VRAM) >> 10), (unsigned)(vglMemFree(VGL_MEM_RAM) >> 10),
+            (unsigned)(vglMemFree(VGL_MEM_SLOW) >> 10));
     controls_init();
 
     l_debug("MHS: notifyOnCreate");

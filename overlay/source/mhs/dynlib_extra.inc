@@ -12,3 +12,7 @@
 { "opendir",                                    (uintptr_t)&mhs_opendir },
 { "access",                                     (uintptr_t)&mhs_access },
 { "AAssetManager_open",                         (uintptr_t)&mhs_AAssetManager_open },
+{ "read",                                       (uintptr_t)&mhs_read },
+{ "lseek",                                      (uintptr_t)&mhs_lseek },
+{ "fstat",                                      (uintptr_t)&mhs_fstat },
+{ "close",                                      (uintptr_t)&mhs_close },

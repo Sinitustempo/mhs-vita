@@ -135,6 +135,50 @@ void mhs_hook_abort_program(const char *fmt, ...) {
     fatal_error("Game error (abortProgram):\n%s\n\nFull log: " DATA_PATH "mhs_log.txt", last_line);
 }
 
+/* Boilerplate implementations we wrap (source/reimpl/io.c, asset_manager.cpp, libc). */
+extern int   open_soloader(const char *path, int flags, int mode);
+extern void *fopen_soloader(const char *path, const char *mode);
+extern int   stat_soloader(const char *path, void *st);
+extern void *opendir_soloader(const char *path);
+extern int   access(const char *path, int mode);
+extern void *AAssetManager_open(void *mgr, const char *name, int mode);
+
+int mhs_open(const char *path, int flags, int mode) {
+    int r = open_soloader(path, flags, mode);
+    mhs_log("[io] open(%s, 0x%x) = %d", path ? path : "(null)", flags, r);
+    return r;
+}
+
+void *mhs_fopen(const char *path, const char *mode) {
+    void *r = fopen_soloader(path, mode);
+    mhs_log("[io] fopen(%s, %s) = %p", path ? path : "(null)", mode ? mode : "", r);
+    return r;
+}
+
+int mhs_stat(const char *path, void *st) {
+    int r = stat_soloader(path, st);
+    mhs_log("[io] stat(%s) = %d", path ? path : "(null)", r);
+    return r;
+}
+
+void *mhs_opendir(const char *path) {
+    void *r = opendir_soloader(path);
+    mhs_log("[io] opendir(%s) = %p", path ? path : "(null)", r);
+    return r;
+}
+
+int mhs_access(const char *path, int mode) {
+    int r = access(path, mode);
+    mhs_log("[io] access(%s, %d) = %d", path ? path : "(null)", mode, r);
+    return r;
+}
+
+void *mhs_AAssetManager_open(void *mgr, const char *name, int mode) {
+    void *r = AAssetManager_open(mgr, name, mode);
+    mhs_log("[io] AAssetManager_open(%s) = %p", name ? name : "(null)", r);
+    return r;
+}
+
 static const char dummy_effectsend[16] = "MHS_EFFECTSEND";
 static const char dummy_reverb[16] = "MHS_ENVREVERB";
 const void *mhs_SL_IID_EFFECTSEND = dummy_effectsend;

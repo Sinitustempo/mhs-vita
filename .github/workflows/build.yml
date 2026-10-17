@@ -1,0 +1,114 @@
+# Builds mhs_vita.vpk with VitaSDK (softfp) and attaches it to the run.
+# Push a tag like v0.1.0 to also publish a GitHub release with the VPK.
+#
+# No game files are involved: the VPK is only the loader. libMHR.so and the
+# OBBs are copied to ux0:data/mhs/ on the Vita separately.
+
+name: Build VPK
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      boilerplate_ref:
+        description: "soloader-boilerplate commit/branch to build against (blank = default branch)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write   # needed only to publish releases on tags
+
+jobs:
+  build:
+    name: ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    container: vitasdk/vitasdk-softfp:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Debug: loader + FalsoJNI logging, for bring-up. Release: what you play.
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Install build tools
+        shell: sh
+        run: |
+          if command -v apk >/dev/null; then
+            apk add --no-cache bash git cmake make sed grep python3 curl
+          elif command -v apt-get >/dev/null; then
+            apt-get update && apt-get install -y --no-install-recommends bash git cmake make sed grep python3 curl ca-certificates
+          fi
+          git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v4
+
+      - name: Check VitaSDK libraries
+        shell: bash
+        run: |
+          echo "VITASDK=$VITASDK"
+          missing=()
+          for lib in OpenSLES sndfile mp3lame mpg123 opus vorbis ogg vorbisenc vorbisfile FLAC \
+                     vitashark SceShaccCgExt mathneon taihen_stub kubridge_stub z; do
+            [ -f "$VITASDK/arm-vita-eabi/lib/lib$lib.a" ] || missing+=("$lib")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::warning::Missing in image: ${missing[*]} (trying vdpm)"
+            for lib in "${missing[@]}"; do vdpm "$lib" || true; done
+          else
+            echo "All required libraries present."
+          fi
+
+      - name: Create build tree (boilerplate + overlay)
+        shell: bash
+        env:
+          BOILERPLATE_REF: ${{ github.event.inputs.boilerplate_ref }}
+        run: bash ./setup.sh
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S build-tree -B build-tree/build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DDUMP_COMPILED_SHADERS=ON
+
+      - name: Build
+        shell: bash
+        run: cmake --build build-tree/build -j"$(nproc)"
+
+      - name: Collect output
+        shell: bash
+        run: |
+          mkdir -p out
+          cp build-tree/build/mhs_vita.vpk "out/mhs_vita-${{ matrix.build_type }}.vpk"
+          # Unstripped ELF lets vita-parse-core turn crash dumps into function names
+          cp build-tree/build/so_loader "out/mhs_vita-${{ matrix.build_type }}.elf" 2>/dev/null || true
+          echo "boilerplate commit: $(git -C build-tree rev-parse HEAD)" > out/BUILD_INFO.txt
+          echo "port commit: $GITHUB_SHA" >> out/BUILD_INFO.txt
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mhs_vita-${{ matrix.build_type }}
+          path: out/
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.vpk
+            dist/*.elf
+          body: |
+            Loader only. You still need your own libMHR.so, assets and OBBs in ux0:data/mhs/ (see README).
+            Debug build logs to ux0:data/mhs/; use it when reporting problems.

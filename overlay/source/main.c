@@ -201,8 +201,28 @@ int main(void) {
     mhs_shader_selftest();
     controls_init();
 
-    l_debug("MHS: notifyOnCreate");
-    mhs.notifyOnCreate(&jni, MHS_FAKE_CLASS, MHS_FAKE_ACTIVITY, &jvm, MHS_FAKE_ASSET_MANAGER);
+    l_debug("MHS: notifyOnCreate (stepwise)");
+    /* Same steps as libMHR's notifyOnCreate, run one at a time with a shader
+     * compiler self-test after each, to find the one that breaks SceShaccCg. */
+    {
+        void (*setJavaVM)(void *) = (void *)so_symbol(&so_mod, "_ZN6native7android9setJavaVMEP7_JavaVM");
+        void (*native_init)(void *) = (void *)so_symbol(&so_mod, "_ZN6native10initializeEP8_jobject");
+        void (*setAssetMgr)(void *, void *) = (void *)so_symbol(&so_mod, "_ZN6native10filesystem15setAssetManagerEP7_JNIEnvP8_jobject");
+        void (*startGame)(void) = (void *)so_symbol(&so_mod, "_ZN6native7android15startGameThreadEv");
+        if (setJavaVM && native_init && setAssetMgr && startGame) {
+            setJavaVM(&jvm);
+            mhs_selftest_point("S1 after setJavaVM");
+            native_init(MHS_FAKE_ACTIVITY);
+            mhs_selftest_point("S2 after native::initialize");
+            setAssetMgr(&jni, MHS_FAKE_ASSET_MANAGER);
+            mhs_selftest_point("S3 after setAssetManager");
+            startGame();
+            mhs_selftest_point("S4 after startGameThread");
+        } else {
+            mhs_log("MHS: stepwise symbols missing, using notifyOnCreate");
+            mhs.notifyOnCreate(&jni, MHS_FAKE_CLASS, MHS_FAKE_ACTIVITY, &jvm, MHS_FAKE_ASSET_MANAGER);
+        }
+    }
     mhs_selftest_point("P1 plain, after notifyOnCreate");
     mhs.notifyOnStart(&jni, MHS_FAKE_CLASS);
     mhs.notifyOnResume(&jni, MHS_FAKE_CLASS);

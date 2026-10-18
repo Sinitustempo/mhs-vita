@@ -55,6 +55,12 @@ grep -q 'mhs/dynlib_extra.inc' source/dynlib.c || { echo "setup: failed to patch
 #    bandwidth; the game is far too heavy for it on the Vita.
 sed -i 's/SCE_GXM_MULTISAMPLE_4X/SCE_GXM_MULTISAMPLE_NONE/' source/utils/glutil.c
 grep -q 'SCE_GXM_MULTISAMPLE_NONE' source/utils/glutil.c || { echo "setup: failed to disable MSAA" >&2; exit 1; }
+#    vglInitExtended's 4th argument is how much system memory vitaGL leaves
+#    unclaimed. The game's threads take their stacks from it and SceShaccCg
+#    needs room to work; with 6 MB every runtime shader compile failed with
+#    "fatal internal error" once the game had started its threads.
+sed -i 's/vglInitExtended(0, 960, 544, 6 \* 1024 \* 1024/vglInitExtended(0, 960, 544, 24 * 1024 * 1024/' source/utils/glutil.c
+grep -q 'vglInitExtended(0, 960, 544, 24 \* 1024 \* 1024' source/utils/glutil.c || { echo "setup: failed to raise vitaGL RAM threshold" >&2; exit 1; }
 
 # 5. vitaGL diagnostics: send its error log (normally sceClibPrintf, i.e. only a
 #    network debug console) to our mhs_log.txt, and in Debug builds also log the

@@ -490,6 +490,9 @@ static int selftest_program(const char *label, const char *vs_src, const char *f
     sceKernelGetFreeMemorySize(&fm);
     mhs_log("[selftest] %s: compiling (free system memory: user %u KB, cdram %u KB, phycont %u KB)",
             label, fm.size_user >> 10, fm.size_cdram >> 10, fm.size_phycont >> 10);
+    struct mallinfo mi = mallinfo();
+    mhs_log("[selftest] %s: heap in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
+            label, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());
     GLuint vs = glCreateShader(GL_VERTEX_SHADER), fs = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(vs, 1, &vs_src, NULL);
     glShaderSource(fs, 1, &fs_src, NULL);

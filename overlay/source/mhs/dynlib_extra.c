@@ -53,6 +53,7 @@ void mhs_android_log_assert(const char *cond, const char *tag, const char *fmt, 
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/sysmem.h>
 #include <stdlib.h>
 #include <psp2/kernel/clib.h>
 #include <string.h>
@@ -462,8 +463,7 @@ void mhs_glLinkProgram(GLuint program) {
         struct mallinfo mi = mallinfo();
         mhs_log("[mem] at first game link: heap arena %u KB, in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
                 mi.arena >> 10, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());
-        SelftestJob j = { "D plain, game link time, worker thread", selftest_vs_plain, selftest_fs_plain };
-        run_on_worker(selftest_job, &j);
+        selftest_program("C plain, at game link time", selftest_vs_plain, selftest_fs_plain);
     }
     if (program < MAX_SHADERS) {
         GLuint a = prog_shaders[program][0], b = prog_shaders[program][1];
@@ -473,7 +473,7 @@ void mhs_glLinkProgram(GLuint program) {
         }
         mhs_log("[gl] linking program %u (shaders %u, %u)", program, a, b);
     }
-    run_on_worker(link_job, (void *)(uintptr_t)program);
+    glLinkProgram(program);
     if (program < MAX_SHADERS && compile_logs < 60) {
         GLint ok = GL_FALSE;
         glGetProgramiv(program, GL_LINK_STATUS, &ok);
@@ -485,7 +485,11 @@ void mhs_glLinkProgram(GLuint program) {
  * struct-returning functions the game's shader generator emits? Each step is
  * logged before it runs, so a crash still tells us which one it was. */
 static int selftest_program(const char *label, const char *vs_src, const char *fs_src) {
-    mhs_log("[selftest] %s: compiling", label);
+    SceKernelFreeMemorySizeInfo fm;
+    fm.size = sizeof(fm);
+    sceKernelGetFreeMemorySize(&fm);
+    mhs_log("[selftest] %s: compiling (free system memory: user %u KB, cdram %u KB, phycont %u KB)",
+            label, fm.size_user >> 10, fm.size_cdram >> 10, fm.size_phycont >> 10);
     GLuint vs = glCreateShader(GL_VERTEX_SHADER), fs = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(vs, 1, &vs_src, NULL);
     glShaderSource(fs, 1, &fs_src, NULL);

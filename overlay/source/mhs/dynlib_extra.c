@@ -400,6 +400,9 @@ void mhs_glLinkProgram(GLuint program) {
                     ti.stackSize >> 10, ((uintptr_t)ti.stack + ti.stackSize - sp) >> 10,
                     (sp - (uintptr_t)ti.stack) >> 10);
         }
+        mhs_log("[mem] vitaGL free at first game link: VRAM %u KB, RAM %u KB, PHYCONT %u KB",
+                (unsigned)(vglMemFree(VGL_MEM_VRAM) >> 10), (unsigned)(vglMemFree(VGL_MEM_RAM) >> 10),
+                (unsigned)(vglMemFree(VGL_MEM_SLOW) >> 10));
         struct mallinfo mi = mallinfo();
         mhs_log("[mem] at first game link: heap arena %u KB, in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
                 mi.arena >> 10, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());

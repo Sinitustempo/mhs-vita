@@ -388,6 +388,36 @@ static unsigned probe_free_mb(void) {
     return total;
 }
 
+/* Run a GL call that triggers shader compilation on a fresh worker thread.
+ * From the game thread, SceShaccCg fails with "fatal internal error" even on
+ * trivial shaders that compile fine at startup; memory and stack are not the
+ * cause, so per-thread state (TLS, which the bionic pthread-key emulation
+ * shares) is the remaining suspect. A clean thread side-steps it. */
+typedef struct { void (*fn)(void *); void *arg; } WorkerJob;
+
+static int worker_entry(SceSize argc, void *argp) {
+    WorkerJob *job = *(WorkerJob **)argp;
+    job->fn(job->arg);
+    return sceKernelExitDeleteThread(0);
+}
+
+static void run_on_worker(void (*fn)(void *), void *arg) {
+    WorkerJob job = { fn, arg };
+    WorkerJob *pjob = &job;
+    SceUID th = sceKernelCreateThread("mhs_shaderc", worker_entry, 0x10000100, 1024 * 1024, 0, 0, NULL);
+    if (th < 0) { fn(arg); return; }   /* fall back to the current thread */
+    sceKernelStartThread(th, sizeof(pjob), &pjob);
+    sceKernelWaitThreadEnd(th, NULL, NULL);
+}
+
+static void link_job(void *arg) { glLinkProgram((GLuint)(uintptr_t)arg); }
+
+typedef struct { const char *label, *vs, *fs; } SelftestJob;
+static void selftest_job(void *arg) {
+    SelftestJob *j = arg;
+    selftest_program(j->label, j->vs, j->fs);
+}
+
 void mhs_glLinkProgram(GLuint program) {
     static int first = 1;
     if (first) {
@@ -406,7 +436,8 @@ void mhs_glLinkProgram(GLuint program) {
         struct mallinfo mi = mallinfo();
         mhs_log("[mem] at first game link: heap arena %u KB, in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
                 mi.arena >> 10, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());
-        selftest_program("C plain, at game link time", selftest_vs_plain, selftest_fs_plain);
+        SelftestJob j = { "D plain, game link time, worker thread", selftest_vs_plain, selftest_fs_plain };
+        run_on_worker(selftest_job, &j);
     }
     if (program < MAX_SHADERS) {
         GLuint a = prog_shaders[program][0], b = prog_shaders[program][1];
@@ -416,7 +447,12 @@ void mhs_glLinkProgram(GLuint program) {
         }
         mhs_log("[gl] linking program %u (shaders %u, %u)", program, a, b);
     }
-    glLinkProgram(program);
+    run_on_worker(link_job, (void *)(uintptr_t)program);
+    if (program < MAX_SHADERS && compile_logs < 60) {
+        GLint ok = GL_FALSE;
+        glGetProgramiv(program, GL_LINK_STATUS, &ok);
+        mhs_log("[gl] program %u link status %d", program, ok);
+    }
 }
 
 /* Startup self-test: is SceShaccCg working at all, or does it choke on the

@@ -22,3 +22,5 @@
 { "glCompileShader",                            (uintptr_t)&mhs_glCompileShader },
 { "glAttachShader",                             (uintptr_t)&mhs_glAttachShader },
 { "glLinkProgram",                              (uintptr_t)&mhs_glLinkProgram },
+{ "glCreateShader",                             (uintptr_t)&mhs_glCreateShader },
+{ "eglGetProcAddress",                          (uintptr_t)&mhs_eglGetProcAddress },

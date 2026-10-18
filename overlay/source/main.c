@@ -203,11 +203,14 @@ int main(void) {
 
     l_debug("MHS: notifyOnCreate");
     mhs.notifyOnCreate(&jni, MHS_FAKE_CLASS, MHS_FAKE_ACTIVITY, &jvm, MHS_FAKE_ASSET_MANAGER);
+    mhs_selftest_point("P1 plain, after notifyOnCreate");
     mhs.notifyOnStart(&jni, MHS_FAKE_CLASS);
     mhs.notifyOnResume(&jni, MHS_FAKE_CLASS);
+    mhs_selftest_point("P2 plain, after notifyOnResume");
 
     l_debug("MHS: notifyOnSurfaceChanged %dx%d", SCREEN_W, SCREEN_H);
     mhs.notifyOnSurfaceChanged(&jni, MHS_FAKE_CLASS, SCREEN_W, SCREEN_H);
+    mhs_selftest_point("P3 plain, after notifyOnSurfaceChanged");
 
     while (1) {
         controls_poll();

@@ -418,6 +418,32 @@ static void selftest_job(void *arg) {
     selftest_program(j->label, j->vs, j->fs);
 }
 
+/* Checkpoint self-test: compile + link a trivial program and log the result. */
+void mhs_selftest_point(const char *label) {
+    selftest_program(label, selftest_vs_plain, selftest_fs_plain);
+}
+
+/* Log every function the game fetches by name (GL extensions etc.).
+ * Bound via an asm label so it can't clash with however vitaGL's headers
+ * declare eglGetProcAddress. */
+extern void *real_eglGetProcAddress(const char *name) __asm__("eglGetProcAddress");
+
+void *mhs_eglGetProcAddress(const char *name) {
+    void *r = real_eglGetProcAddress(name);
+    mhs_log("[egl] eglGetProcAddress(%s) = %p", name ? name : "(null)", r);
+    return r;
+}
+
+void mhs_glCreateShader_checkpoint(void) {
+    static int done;
+    if (!done) { done = 1; mhs_selftest_point("E plain, before game's first glCreateShader"); }
+}
+
+GLuint mhs_glCreateShader(GLenum type) {
+    mhs_glCreateShader_checkpoint();
+    return glCreateShader(type);
+}
+
 void mhs_glLinkProgram(GLuint program) {
     static int first = 1;
     if (first) {

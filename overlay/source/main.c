@@ -25,6 +25,7 @@
 #include <vitaGL.h>
 #include <vitashark.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "reimpl/controls.h"
 #include "mhs/mhs_native.h"
@@ -212,8 +213,37 @@ int main(void) {
         if (setJavaVM && native_init && setAssetMgr && startGame) {
             setJavaVM(&jvm);
             mhs_selftest_point("S1 after setJavaVM");
-            native_init(MHS_FAKE_ACTIVITY);
-            mhs_selftest_point("S2 after native::initialize");
+            /* native::initialize is just these calls in this order (build 27:
+             * the compiler broke somewhere inside it). */
+            static const char *const subinit[] = {
+                "_ZN6native7android10initializeEP8_jobject",
+                "_ZN6native11performance10initializeEv",
+                "_ZN6native5debug10initializeEv",
+                "_ZN6native6memory10initializeEv",
+                "_ZN6native11multithread10initializeEv",
+                "_ZN6native10filesystem10initializeEv",
+                "_ZN6native10filesystem12initRootPathEv",
+                "_ZN6native9clipboard10initializeEv",
+                "_ZN6native10multimedia10initializeEv",
+                "_ZN6native7console10initializeEv",
+                "_ZN6native10googleplay10initializeEv",
+                "_ZN6native10httpclient10initializeEv",
+            };
+            int all_found = 1;
+            for (unsigned i = 0; i < sizeof(subinit) / sizeof(*subinit); i++)
+                if (!so_symbol(&so_mod, subinit[i])) { mhs_log("MHS: missing %s", subinit[i]); all_found = 0; }
+            if (all_found) {
+                for (unsigned i = 0; i < sizeof(subinit) / sizeof(*subinit); i++) {
+                    void (*fn)(void *) = (void *)so_symbol(&so_mod, subinit[i]);
+                    char label[96];
+                    fn(MHS_FAKE_ACTIVITY);   /* only android::initialize takes an argument */
+                    snprintf(label, sizeof(label), "S2.%u after %s", i, subinit[i]);
+                    mhs_selftest_point(label);
+                }
+            } else {
+                native_init(MHS_FAKE_ACTIVITY);
+                mhs_selftest_point("S2 after native::initialize");
+            }
             setAssetMgr(&jni, MHS_FAKE_ASSET_MANAGER);
             mhs_selftest_point("S3 after setAssetManager");
             startGame();

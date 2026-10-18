@@ -23,6 +23,8 @@
 #include <falso_jni/FalsoJNI.h>
 #include <so_util/so_util.h>
 #include <vitaGL.h>
+#include <vitashark.h>
+#include <stdlib.h>
 
 #include "reimpl/controls.h"
 #include "mhs/mhs_native.h"
@@ -192,6 +194,10 @@ int main(void) {
     mhs_log("MHS: vitaGL free memory: VRAM %u KB, RAM %u KB, PHYCONT %u KB",
             (unsigned)(vglMemFree(VGL_MEM_VRAM) >> 10), (unsigned)(vglMemFree(VGL_MEM_RAM) >> 10),
             (unsigned)(vglMemFree(VGL_MEM_SLOW) >> 10));
+    /* vitaGL hands SceShaccCg its own pool (vglMalloc), which the game fills
+     * with textures before its first shader link; the compiler then failed
+     * with "fatal internal error". Use the newlib heap for compiler scratch. */
+    shark_set_allocators(malloc, free);
     mhs_shader_selftest();
     controls_init();
 

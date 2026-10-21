@@ -103,6 +103,35 @@ The button table lives in the boilerplate's `source/reimpl/controls.c`. L2/R2/L3
 8. **Memory.** If it runs out of memory, lower `_newlib_heap_size_user` or vitaGL's RAM share, and look at the engine's resource-cache sizes.
 9. **Performance.** Profile with Razor; candidates are render resolution, shadows and the particle budget, all reachable by symbol.
 
+## Current blocker: "Shader Compiler: fatal internal error" (builds 19–27)
+
+SceShaccCg (the runtime shader compiler) compiles and links a trivial test shader at startup, then fails on the same shader once the game has initialized. What the logs and the decompiled `libMHR.so` (Ghidra) establish:
+
+| Build | Result |
+|---|---|
+| 19–23 | Game's first shader link fails; trivial test shaders also fail at that point |
+| 24 | Fails on a fresh native worker thread too, so it's **process-wide state**, not stack, TLS or FPU flags |
+| 25–26 | OK at startup, broken after `notifyOnCreate` |
+| 27 | OK after `setJavaVM` (S1), broken after `native::initialize` (S2); free user memory 24,576 → 22,528 KB |
+
+`native::initialize` calls 12 sub-inits. From the decompiled code, `debug`, `initRootPath`, `clipboard` and `console` are empty or only set variables, `httpclient` only registers a callback, and `performance` only calls `clock_getres`. The only process-wide effects are FalsoJNI calls (`android`, `filesystem`), one `malloc` plus a `/proc/meminfo` read (`memory`), and **two game threads** (File access manager, Multimedia) started through `pthread_create_soloader`, each with a 512 KB stack. `libMHR.so` never touches the TLS register directly (scanned in both Thumb and ARM mode).
+
+Builds up to 27 also called `shark_set_allocators(malloc, free)` after `gl_init()`. That had no effect: vitaShaRK only hands the allocator to the module inside `shark_init()`, which vitaGL had already run with `vglMalloc`/`vglFree`.
+
+**Build 28 changes (untested on hardware):**
+
+- **Allocator:** `mhs_shader_compiler_reload()` unloads and reloads SceShaccCg so the newlib allocator really takes effect.
+- **Thread probe:** `mhs_thread_probe()` (T0/T1) creates soloader pthreads on their own, before any game code runs.
+- **Contiguous reserve:** a 6 MB block is taken at startup and released only around shader links (`MHS_SHADERC_RESERVE`). This is the candidate fix if the cause is fragmentation, meaning thread stacks splitting free memory so no large contiguous block is left.
+- **Self-test logging:** every self-test now logs the **largest allocatable block**. On failure it retries first with the reserve released, then after a compiler reload.
+
+**Reading the build 28 log:**
+
+- **T0/T1 fail:** creating threads alone breaks the compiler.
+- **"retry with reserve released" passes:** the cause is memory contiguity, and the reserve is the fix.
+- **Only "retry after compiler reload" passes:** the module's own state is being corrupted; reloading at link time is a workaround.
+- **Nothing passes:** the failing `S2.n` line names the sub-init to study next in Ghidra.
+
 ## Credits
 
 - so-loader concept: TheFloW. FalsoJNI and soloader-boilerplate: Volodymyr Atamanenko. vitaGL: Rinnegatamante.

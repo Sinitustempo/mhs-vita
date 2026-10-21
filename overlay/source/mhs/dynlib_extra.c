@@ -292,6 +292,8 @@ void *mhs_AAssetManager_open(void *mgr, const char *name, int mode) {
  * and refuse to link programs that contain a failed shader. */
 
 #include <vitaGL.h>
+#include <vitashark.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <malloc.h>
 
@@ -390,10 +392,8 @@ static unsigned probe_free_mb(void) {
 }
 
 /* Run a GL call that triggers shader compilation on a fresh worker thread.
- * From the game thread, SceShaccCg fails with "fatal internal error" even on
- * trivial shaders that compile fine at startup; memory and stack are not the
- * cause, so per-thread state (TLS, which the bionic pthread-key emulation
- * shares) is the remaining suspect. A clean thread side-steps it. */
+ * Build 24 tried this: the compile failed on the worker too, so the broken
+ * state is process-wide, not per-thread (stack/TLS/FPSCR). Kept for tests. */
 typedef struct { void (*fn)(void *); void *arg; } WorkerJob;
 
 static int worker_entry(SceSize argc, void *argp) {
@@ -419,9 +419,99 @@ static void selftest_job(void *arg) {
     selftest_program(j->label, j->vs, j->fs);
 }
 
-/* Checkpoint self-test: compile + link a trivial program and log the result. */
+/* Reload SceShaccCg with newlib malloc/free as its allocator. vitaGL's
+ * start_shader_compiler() installs vglMalloc/vglFree and vitaShaRK only hands
+ * the allocator to the module inside shark_init(), so shark_set_allocators()
+ * on its own after gl_init() never reached the compiler. Unloading and
+ * reloading the module also clears any internal state it was left in. */
+int mhs_shader_compiler_reload(void) {
+    shark_end();
+    shark_set_allocators(malloc, free);
+    int r = shark_init(NULL);
+    if (r < 0) r = shark_init("ur0:data/external/libshacccg.suprx");
+    mhs_log("[shark] compiler reloaded with newlib allocator: %d", r);
+    return r;
+}
+
+/* Contiguous reserve for the shader compiler. Game threads get their stacks
+ * as separate memblocks out of the ~24 MB vitaGL leaves free (setup.sh), so
+ * the free total stays large while the biggest contiguous block shrinks. We
+ * hold a block from startup and free it only around shader links, so the
+ * compiler always finds one contiguous region of at least this size. */
+#define MHS_SHADERC_RESERVE (6 * 1024 * 1024)
+
+static SceUID shaderc_reserve = -1;
+
+void mhs_shaderc_reserve_take(void) {
+    if (shaderc_reserve >= 0) return;
+    shaderc_reserve = sceKernelAllocMemBlock("mhs_shaderc_reserve", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
+                                             MHS_SHADERC_RESERVE, NULL);
+    if (shaderc_reserve < 0) mhs_log("[shark] could not take compiler reserve: %#x", shaderc_reserve);
+}
+
+void mhs_shaderc_reserve_release(void) {
+    if (shaderc_reserve < 0) return;
+    sceKernelFreeMemBlock(shaderc_reserve);
+    shaderc_reserve = -1;
+}
+
+/* Largest single user memblock that can still be allocated, in KB. */
+static unsigned largest_block_kb(void) {
+    unsigned lo = 0, hi = 256 * 1024;   /* in 4 KB pages: up to 1 GB */
+    while (lo < hi) {
+        unsigned mid = (lo + hi + 1) / 2;
+        SceUID b = sceKernelAllocMemBlock("mhs_probe", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, mid * 4096, NULL);
+        if (b >= 0) { sceKernelFreeMemBlock(b); lo = mid; } else hi = mid - 1;
+    }
+    return lo * 4;
+}
+
+/* Checkpoint self-test: compile + link a trivial program and log the result.
+ * On failure it tries the two remaining suspects in turn, so one run says
+ * which (if either) matters:
+ *   1. memory fragmentation: retry with the contiguous reserve freed;
+ *   2. the module's own state: reload SceShaccCg and retry. */
 void mhs_selftest_point(const char *label) {
-    selftest_program(label, selftest_vs_plain, selftest_fs_plain);
+    if (selftest_program(label, selftest_vs_plain, selftest_fs_plain)) return;
+    char retry[160];
+    int ok = 0;
+    if (shaderc_reserve >= 0) {
+        mhs_shaderc_reserve_release();
+        snprintf(retry, sizeof(retry), "%s, retry with reserve released", label);
+        ok = selftest_program(retry, selftest_vs_plain, selftest_fs_plain);
+    }
+    if (!ok && mhs_shader_compiler_reload() >= 0) {
+        snprintf(retry, sizeof(retry), "%s, retry after compiler reload", label);
+        selftest_program(retry, selftest_vs_plain, selftest_fs_plain);
+    }
+    mhs_shaderc_reserve_take();
+}
+
+/* The decompiled native::initialize only does three things with process-wide
+ * effects: JNI calls into FalsoJNI, a malloc + /proc/meminfo read, and two
+ * Thread::start calls (File access manager, Multimedia), which go through
+ * pthread_create_soloader. These probes repeat the thread part on its own. */
+extern int pthread_create_soloader(pthread_t *thread, const void *attr,
+                                   void *(*start)(void *), void *param);
+
+static void *probe_exit(void *arg) { (void)arg; return NULL; }
+
+static void *probe_idle(void *arg) {
+    (void)arg;
+    for (;;) sceKernelDelayThread(100 * 1000);
+    return NULL;
+}
+
+void mhs_thread_probe(void) {
+    pthread_t a, b;
+    int r = pthread_create_soloader(&a, NULL, probe_exit, NULL);
+    sceKernelDelayThread(50 * 1000);
+    mhs_log("[probe] short-lived soloader pthread: create = %d", r);
+    mhs_selftest_point("T0 after a soloader pthread ran and exited");
+    r = pthread_create_soloader(&b, NULL, probe_idle, NULL);
+    sceKernelDelayThread(50 * 1000);
+    mhs_log("[probe] idle soloader pthread: create = %d", r);
+    mhs_selftest_point("T1 with an idle soloader pthread alive");
 }
 
 /* Log every function the game fetches by name (GL extensions etc.).
@@ -473,7 +563,10 @@ void mhs_glLinkProgram(GLuint program) {
         }
         mhs_log("[gl] linking program %u (shaders %u, %u)", program, a, b);
     }
+    /* vitaGL runs SceShaccCg here: give it the reserved contiguous block. */
+    mhs_shaderc_reserve_release();
     glLinkProgram(program);
+    mhs_shaderc_reserve_take();
     if (program < MAX_SHADERS && compile_logs < 60) {
         GLint ok = GL_FALSE;
         glGetProgramiv(program, GL_LINK_STATUS, &ok);
@@ -488,8 +581,9 @@ static int selftest_program(const char *label, const char *vs_src, const char *f
     SceKernelFreeMemorySizeInfo fm;
     fm.size = sizeof(fm);
     sceKernelGetFreeMemorySize(&fm);
-    mhs_log("[selftest] %s: compiling (free system memory: user %u KB, cdram %u KB, phycont %u KB)",
-            label, fm.size_user >> 10, fm.size_cdram >> 10, fm.size_phycont >> 10);
+    mhs_log("[selftest] %s: compiling (free system memory: user %u KB, largest block %u KB, "
+            "cdram %u KB, phycont %u KB)", label, fm.size_user >> 10, largest_block_kb(),
+            fm.size_cdram >> 10, fm.size_phycont >> 10);
     struct mallinfo mi = mallinfo();
     mhs_log("[selftest] %s: heap in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
             label, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());

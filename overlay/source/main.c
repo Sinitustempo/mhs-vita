@@ -201,12 +201,9 @@ int main(void) {
      * which only takes effect in shark_init(), so the module has to be
      * reloaded for the allocator to change. */
     mhs_shader_compiler_reload();
-    /* Claim the compiler's contiguous reserve now, before any thread stacks
-     * can split up free memory (released around every link, dynlib_extra.c). */
-    mhs_shaderc_reserve_take();
     mhs_shader_selftest();
-    /* Build 27: the compiler broke inside native::initialize, whose only
-     * process-wide side effects are its two game threads. Test that alone. */
+    /* Build 28: threads alone (T0/T1) were fine; the compiler broke in
+     * filesystem::initialize (512 Events, see patch.c). Kept as a check. */
     mhs_thread_probe();
     controls_init();
 

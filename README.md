@@ -103,7 +103,7 @@ The button table lives in the boilerplate's `source/reimpl/controls.c`. L2/R2/L3
 8. **Memory.** If it runs out of memory, lower `_newlib_heap_size_user` or vitaGL's RAM share, and look at the engine's resource-cache sizes.
 9. **Performance.** Profile with Razor; candidates are render resolution, shadows and the particle budget, all reachable by symbol.
 
-## Current blocker: "Shader Compiler: fatal internal error" (builds 19–27)
+## Shader compiler "fatal internal error" (builds 19–28; fix in build 29)
 
 SceShaccCg (the runtime shader compiler) compiles and links a trivial test shader at startup, then fails on the same shader once the game has initialized. What the logs and the decompiled `libMHR.so` (Ghidra) establish:
 
@@ -118,19 +118,18 @@ SceShaccCg (the runtime shader compiler) compiles and links a trivial test shade
 
 Builds up to 27 also called `shark_set_allocators(malloc, free)` after `gl_init()`. That had no effect: vitaShaRK only hands the allocator to the module inside `shark_init()`, which vitaGL had already run with `vglMalloc`/`vglFree`.
 
-**Build 28 changes (untested on hardware):**
+**Build 28 result:** threads alone (T0/T1) were fine, and the largest free block stayed around 19 MB throughout, so it isn't fragmentation. Every sub-init up to `multithread` passed; the compiler broke right after **`filesystem::initialize` (S2.5)**, and the process crashed inside that link.
 
-- **Allocator:** `mhs_shader_compiler_reload()` unloads and reloads SceShaccCg so the newlib allocator really takes effect.
-- **Thread probe:** `mhs_thread_probe()` (T0/T1) creates soloader pthreads on their own, before any game code runs.
-- **Contiguous reserve:** a 6 MB block is taken at startup and released only around shader links (`MHS_SHADERC_RESERVE`). This is the candidate fix if the cause is fragmentation, meaning thread stacks splitting free memory so no large contiguous block is left.
-- **Self-test logging:** every self-test now logs the **largest allocatable block**. On failure it retries first with the reserve released, then after a compiler reload.
+**Root cause:** `FileAccessManager`'s constructor builds **512 `native::multithread::Event`s**, each running `pthread_mutex_init` and `pthread_cond_init`. The boilerplate's pthread emulation (`reimpl/pthr.c`) records every initialized object in `initializedObjects[PTHR_MAX_OBJECTS]`, a table of **1024** entries. Once it's full, `rememberObject` fails silently and nothing checks the result. From then on, every lock of an untracked mutex looks uninitialized, so the boilerplate creates a new real mutex, backed by kernel objects, and leaks the old one. The File access manager thread enters its critical section every 10 ms, so kernel objects run out within moments, and those mutexes no longer exclude anything.
 
-**Reading the build 28 log:**
+**Build 29 fix:**
 
-- **T0/T1 fail:** creating threads alone breaks the compiler.
-- **"retry with reserve released" passes:** the cause is memory contiguity, and the reserve is the fix.
-- **Only "retry after compiler reload" passes:** the module's own state is being corrupted; reloading at link time is a workaround.
-- **Nothing passes:** the failing `S2.n` line names the sub-init to study next in Ghidra.
+- **Lazy Events:** `patch.c` hooks `Event::Event` and `Event::~Event`. The constructor leaves the mutex and cond at the bionic static initializer (0), and the boilerplate creates them on first use, so only Events the game actually uses cost anything. The destructor skips Events that were never used.
+- **Bigger table:** `setup.sh` raises `PTHR_MAX_OBJECTS` to 4096.
+- **Logging:** every self-test now logs `pthread objects N/4096`. If N climbs toward the limit, something else is creating objects in bulk.
+- **Removed:** the 6 MB contiguous reserve from build 28, since fragmentation was ruled out.
+
+## Credits
 
 ## Credits
 

@@ -62,7 +62,16 @@ grep -q 'SCE_GXM_MULTISAMPLE_NONE' source/utils/glutil.c || { echo "setup: faile
 sed -i 's/vglInitExtended(0, 960, 544, 6 \* 1024 \* 1024/vglInitExtended(0, 960, 544, 24 * 1024 * 1024/' source/utils/glutil.c
 grep -q 'vglInitExtended(0, 960, 544, 24 \* 1024 \* 1024' source/utils/glutil.c || { echo "setup: failed to raise vitaGL RAM threshold" >&2; exit 1; }
 
-# 5. vitaGL diagnostics: send its error log (normally sceClibPrintf, i.e. only a
+# 5. pthread emulation: reimpl/pthr.c tracks every initialized mutex/cond in a
+#    fixed table of 1024. When it's full, rememberObject fails silently and each
+#    lock of an untracked mutex creates (and leaks) a new one. The game easily
+#    passes 1024; patch.c makes its Events lazy and this gives headroom.
+#    dynlib_extra.c's MHS_PTHR_MAX_OBJECTS must match.
+PTHR_DEF="$(grep -rl 'define PTHR_MAX_OBJECTS' source/reimpl)"
+sed -i 's/#define PTHR_MAX_OBJECTS 1024/#define PTHR_MAX_OBJECTS 4096/' $PTHR_DEF
+grep -q '#define PTHR_MAX_OBJECTS 4096' $PTHR_DEF || { echo "setup: failed to raise PTHR_MAX_OBJECTS" >&2; exit 1; }
+
+# 6. vitaGL diagnostics: send its error log (normally sceClibPrintf, i.e. only a
 #    network debug console) to our mhs_log.txt, and in Debug builds also log the
 #    shader compiler (shark) and GLSL translator output.
 sed -i 's|#define vgl_log sceClibPrintf|void mhs_log(const char *fmt, ...);\n#define vgl_log mhs_log|' lib/vitagl/source/utils/debug_utils.h

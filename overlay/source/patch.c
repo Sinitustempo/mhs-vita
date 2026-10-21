@@ -194,6 +194,33 @@ static int mhs_event_wait(NativeEvent *ev, unsigned timeout_ms) {
     return ok;
 }
 
+/* native::multithread::Event's constructor runs pthread_mutex_init and
+ * pthread_cond_init. FileAccessManager alone constructs 512 Events, so through
+ * the boilerplate that is 1024 real pthread objects at once, which fills its
+ * initializedObjects table (PTHR_MAX_OBJECTS). Past that, rememberObject fails
+ * silently and every lock of an untracked mutex creates and leaks a new one:
+ * kernel objects run out (SceShaccCg was the first casualty, build 28) and
+ * those mutexes stop excluding anything.
+ * Leave the fields at the bionic static initializer (0) instead; the boilerplate
+ * initializes on first use, so only Events the game actually uses cost anything. */
+static int mhs_event_ctor(NativeEvent *ev, int initially_signaled) {
+    ev->signaled = (uint8_t)initially_signaled;
+    ev->mutex = 0;
+    ev->cond = 0;
+    return 0;
+}
+
+extern int pthread_mutex_destroy_soloader(void *m);
+extern int pthread_cond_destroy_soloader(void *c);
+
+/* Never-used Events have nothing to destroy (the boilerplate would pass a NULL
+ * real object to pthread-embedded). */
+static int mhs_event_dtor(NativeEvent *ev) {
+    if (ev->mutex) pthread_mutex_destroy_soloader(&ev->mutex);
+    if (ev->cond) return pthread_cond_destroy_soloader(&ev->cond);
+    return 0;
+}
+
 static void ret_void(void) {}
 
 void so_patch(void) {
@@ -209,6 +236,9 @@ void so_patch(void) {
     hook_sym("_ZN6native5debug12abortProgramEPKcz", (uintptr_t)&mhs_hook_abort_program);
 
     hook_sym("_ZN6native11multithread5Event4waitEj", (uintptr_t)&mhs_event_wait);
+    /* C1/C2 and D1/D2 are aliases at the same address, so one hook each. */
+    hook_sym("_ZN6native11multithread5EventC1Eb", (uintptr_t)&mhs_event_ctor);
+    hook_sym("_ZN6native11multithread5EventD1Ev", (uintptr_t)&mhs_event_dtor);
 
     /* Candidate (untested): the Android sound backend builds an OpenSL reverb
      * chain the Vita wrapper doesn't implement. If audio init fails, try

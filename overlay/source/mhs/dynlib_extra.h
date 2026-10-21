@@ -63,8 +63,6 @@ void mhs_glLinkProgram(unsigned program);
 void mhs_shader_selftest(void);
 void mhs_selftest_point(const char *label);
 int mhs_shader_compiler_reload(void);
-void mhs_shaderc_reserve_take(void);
-void mhs_shaderc_reserve_release(void);
 void mhs_thread_probe(void);
 void *mhs_eglGetProcAddress(const char *name);
 unsigned mhs_glCreateShader(unsigned type);

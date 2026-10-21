@@ -433,26 +433,16 @@ int mhs_shader_compiler_reload(void) {
     return r;
 }
 
-/* Contiguous reserve for the shader compiler. Game threads get their stacks
- * as separate memblocks out of the ~24 MB vitaGL leaves free (setup.sh), so
- * the free total stays large while the biggest contiguous block shrinks. We
- * hold a block from startup and free it only around shader links, so the
- * compiler always finds one contiguous region of at least this size. */
-#define MHS_SHADERC_RESERVE (6 * 1024 * 1024)
+/* The boilerplate's table of initialized pthread objects (reimpl/pthr.c).
+ * setup.sh raises its size from 1024 to this; past it, rememberObject fails
+ * silently and every lock of an untracked mutex leaks a new one. */
+#define MHS_PTHR_MAX_OBJECTS 4096
+extern void *initializedObjects[];
 
-static SceUID shaderc_reserve = -1;
-
-void mhs_shaderc_reserve_take(void) {
-    if (shaderc_reserve >= 0) return;
-    shaderc_reserve = sceKernelAllocMemBlock("mhs_shaderc_reserve", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
-                                             MHS_SHADERC_RESERVE, NULL);
-    if (shaderc_reserve < 0) mhs_log("[shark] could not take compiler reserve: %#x", shaderc_reserve);
-}
-
-void mhs_shaderc_reserve_release(void) {
-    if (shaderc_reserve < 0) return;
-    sceKernelFreeMemBlock(shaderc_reserve);
-    shaderc_reserve = -1;
+static unsigned pthr_objects_used(void) {
+    unsigned n = 0;
+    for (unsigned i = 0; i < MHS_PTHR_MAX_OBJECTS; i++) n += initializedObjects[i] != 0;
+    return n;
 }
 
 /* Largest single user memblock that can still be allocated, in KB. */
@@ -467,24 +457,15 @@ static unsigned largest_block_kb(void) {
 }
 
 /* Checkpoint self-test: compile + link a trivial program and log the result.
- * On failure it tries the two remaining suspects in turn, so one run says
- * which (if either) matters:
- *   1. memory fragmentation: retry with the contiguous reserve freed;
- *   2. the module's own state: reload SceShaccCg and retry. */
+ * On failure, reload SceShaccCg and retry once, in case the module's own
+ * state is what broke. */
 void mhs_selftest_point(const char *label) {
     if (selftest_program(label, selftest_vs_plain, selftest_fs_plain)) return;
     char retry[160];
-    int ok = 0;
-    if (shaderc_reserve >= 0) {
-        mhs_shaderc_reserve_release();
-        snprintf(retry, sizeof(retry), "%s, retry with reserve released", label);
-        ok = selftest_program(retry, selftest_vs_plain, selftest_fs_plain);
-    }
-    if (!ok && mhs_shader_compiler_reload() >= 0) {
+    if (mhs_shader_compiler_reload() >= 0) {
         snprintf(retry, sizeof(retry), "%s, retry after compiler reload", label);
         selftest_program(retry, selftest_vs_plain, selftest_fs_plain);
     }
-    mhs_shaderc_reserve_take();
 }
 
 /* The decompiled native::initialize only does three things with process-wide
@@ -563,10 +544,7 @@ void mhs_glLinkProgram(GLuint program) {
         }
         mhs_log("[gl] linking program %u (shaders %u, %u)", program, a, b);
     }
-    /* vitaGL runs SceShaccCg here: give it the reserved contiguous block. */
-    mhs_shaderc_reserve_release();
     glLinkProgram(program);
-    mhs_shaderc_reserve_take();
     if (program < MAX_SHADERS && compile_logs < 60) {
         GLint ok = GL_FALSE;
         glGetProgramiv(program, GL_LINK_STATUS, &ok);
@@ -585,8 +563,9 @@ static int selftest_program(const char *label, const char *vs_src, const char *f
             "cdram %u KB, phycont %u KB)", label, fm.size_user >> 10, largest_block_kb(),
             fm.size_cdram >> 10, fm.size_phycont >> 10);
     struct mallinfo mi = mallinfo();
-    mhs_log("[selftest] %s: heap in use %u KB, free-in-arena %u KB, malloc-able ~%u MB",
-            label, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb());
+    mhs_log("[selftest] %s: heap in use %u KB, free-in-arena %u KB, malloc-able ~%u MB, "
+            "pthread objects %u/%u", label, mi.uordblks >> 10, mi.fordblks >> 10, probe_free_mb(),
+            pthr_objects_used(), MHS_PTHR_MAX_OBJECTS);
     GLuint vs = glCreateShader(GL_VERTEX_SHADER), fs = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(vs, 1, &vs_src, NULL);
     glShaderSource(fs, 1, &fs_src, NULL);
